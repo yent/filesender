@@ -143,7 +143,7 @@ class Lang
      *
      * @return array
      */
-    public static function getCodeStack()
+    private static function getCodeStack()
     {
         if (is_null(self::$code_stack)) {
             $stack = array();
