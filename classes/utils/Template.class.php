@@ -107,6 +107,55 @@ class Template
         // Resolve template file path
         $path = self::resolve($id);
         
+        $cache_path = FILESENDER_BASE.'/cache/templates';
+        if(!is_dir($cache_path) && !mkdir($cache_path, 0755, true))
+            throw new DetailedException('failed_to_create_template_cache');
+
+        $code_stack = Lang::getCodeStack();
+        $id = str_replace('.php', '', basename($path));
+        $id .= '-'.$code_stack['main'].($code_stack['fallback'] ? '-'.implode('-', $code_stack['fallback']) : '');
+        $cache_path .= '/'.$id.'.php';
+
+        if(!array_key_exists('tr_id', $_SESSION))
+            $_SESSION['tr_id'] = substr(Utilities::generateUID(), -8);
+
+        if(!file_exists($cache_path) || filemtime($cache_path) <= max(filemtime(FILESENDER_BASE.'/config/config.php'), filemtime($path))) {
+            // Cache non-existent or outdated, regenerate
+            $content = file_get_contents($path);
+
+            // Run config dependent replaces to avoid user injection
+
+            // Config syntax
+            $content = preg_replace_callback('`\{(cfg|conf|config):([^}]+)\}`', function ($m) {
+                return Utilities::sanitizeOutput(Config::get($m[2]));
+            }, $content);
+
+            // Image syntax
+            $content = preg_replace_callback('`\{(img|image):([^}]+)\}`', function ($m) {
+                return Utilities::sanitizeOutput(GUI::path('res/images/'.$m[2]));
+            }, $content);
+
+            // Path syntax
+            $content = preg_replace_callback('`\{(path):([^}]*)\}`', function ($m) {
+                return Utilities::sanitizeOutput(GUI::path($m[2]));
+            }, $content);
+
+            // Translation syntax to session tied unguessable translation call
+            $content = preg_replace_callback('`\{(loc|tr|translate):([^}]+)\}`', function ($m) {
+                return '{tr'.$_SESSION['tr_id'].':'.$m[2].'}';
+            }, $content);
+
+            // Relocate relative includes
+            $dir = dirname($path);
+            $content = preg_replace('`((?:include|require)(?:_once)?)\s*\(?(.+)\s*\)?\s*;`', '$1("'.$dir.'/".$2);', $content);
+
+            // Stash template in cache
+            if(!file_put_contents($cache_path, $content))
+                throw new DetailedException('failed_to_save_template_cache');
+
+            $path = $cache_path;
+        }
+
         // Lambda renderer to isolate context
         $renderer = function ($path, $vars) {
             foreach ($vars as $k => $v) {
@@ -126,25 +175,10 @@ class Template
             $exception = $e;
         }
         $content = ob_get_clean();
-        
-        // Translation syntax
-        $content = preg_replace_callback('`\{(loc|tr|translate):([^}]+)\}`', function ($m) {
-            return (string)Lang::translate($m[2]);
-        }, $content);
-        
-        // Config syntax
-        $content = preg_replace_callback('`\{(cfg|conf|config):([^}]+)\}`', function ($m) {
-            return Utilities::sanitizeOutput(Config::get($m[2]));
-        }, $content);
-        
-        // Image syntax
-        $content = preg_replace_callback('`\{(img|image):([^}]+)\}`', function ($m) {
-            return Utilities::sanitizeOutput(GUI::path('res/images/'.$m[2]));
-        }, $content);
-        
-        // Path syntax
-        $content = preg_replace_callback('`\{(path):([^}]*)\}`', function ($m) {
-            return Utilities::sanitizeOutput(GUI::path($m[2]));
+
+        // Session tied unguessable translation call resolver
+        $content = preg_replace_callback('`\{tr'.$_SESSION['tr_id'].':([^}]+)\}`', function ($m) {
+            return Lang::tr(trim($m[1]));
         }, $content);
         
         // Add context as a html comment if required
