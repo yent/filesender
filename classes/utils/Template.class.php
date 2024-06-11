@@ -146,7 +146,12 @@ class Template
         $content = preg_replace_callback('`\{(path):([^}]*)\}`', function ($m) {
             return Utilities::sanitizeOutput(GUI::path($m[2]));
         }, $content);
-        
+
+        // Replace tainted vars last
+        $content = preg_replace_callback('`\{tainted:([^}]*)\}`', function ($m) {
+            return self::getTaintedFromReplacement($m[1]);
+        }, $content);
+
         // Add context as a html comment if required
         if ($addctx) {
             $content = "\n".'<!-- template:'.$id.' start -->'."\n".$content."\n".'<!-- template:'.$id.' end -->'."\n";
@@ -163,7 +168,29 @@ class Template
         
         return $content;
     }
-    
+
+    /**
+     * Replace tainted var with custom syntax for later replacement when it is safe to do so
+     *
+     * @param mixed $data
+     * @return string
+     */
+    public static function replaceTainted($data) {
+        $uid = uniqid('', true);
+        $_SESSION['tainted_'.$uid] = $data;
+        return '{tainted:'.$uid.'}';
+    }
+
+    /**
+     * Get original value of replaced tainted var
+     *
+     * @param string $uid
+     * @return string
+     */
+    public static function getTaintedFromReplacement($uid) {
+        return self::sanitizeOutput($_SESSION['tainted_'.$uid]);
+    }
+
     /**
      * Sanitize data to avoid tag replacement
      *
