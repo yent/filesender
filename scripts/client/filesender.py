@@ -123,7 +123,9 @@ if apikey is None:
 else:
   parser.add_argument("-a", "--apikey")
   
-requiredNamed.add_argument("-r", "--recipients", required=True)
+alternativeArgs = parser.add_mutually_exclusive_group(required=True)
+alternativeArgs.add_argument("-r", "--recipients")
+alternativeArgs.add_argument("-l", "--link", action="store_true")
 
 # Do not change this seemingly out-of-place concat as it avoid getting this test messed up by clidownload.php
 if base_url == "[" + "base_url" + "]":
@@ -144,6 +146,10 @@ user_threads = args.threads
 user_timeout = args.timeout
 user_retries = args.retries
 encrypted = args.encrypted
+
+if guest and args.link:
+  print('Cannot request link when creating guest')
+  sys.exit(1)
 
 if args.username is not None:
   username = args.username
@@ -217,12 +223,20 @@ if user_timeout:
 if user_retries:
   worker_retries  = min(int(user_retries), worker_retries)
 
+if args.link:
+  recipients = ''
+else:
+  recipients = args.recipients
+
 if debug:
   print('base_url          : '+base_url)
   print('username          : '+username)
   print('apikey            : '+apikey)
   print('upload_chunk_size : '+str(upload_chunk_size)+' bytes')
-  print('recipients        : '+args.recipients)
+  if args.link:
+    print('recipients        : get_a_link')
+  else:
+    print('recipients        : '+recipients)
   print('files             : '+','.join(args.files))
   print('insecure          : '+str(insecure))
 
@@ -616,7 +630,10 @@ for fn_abs in fileList:
   filesTransfer.append(file_transfer_object)
 release_list(fileList) # don't need it anymore
 
-troptions = {'get_a_link':0}
+if args.link:
+  troptions = {'get_a_link':1}
+else:
+  troptions = {'get_a_link':0}
 
 transfer = postTransfer( username,
                          filesTransfer,
@@ -666,6 +683,15 @@ try:
   transferComplete(transfer)
   if progress:
     print('Upload Complete')
+
+  if args.link:
+    link = transfer['recipients'][0]['download_url']
+    print('Download link is: '+link)
+    print('Direct files links are:')
+    for file in transfer['files']:
+      print("\t"+file['name']+': '+transfer['recipients'][0]['download_url']+'&files_ids='+str(file['id']))
+    if len(transfer['files']) > 1:
+      print('Archive download link: '+transfer['recipients'][0]['download_url']+'&files_ids='+','.join([str(f['id']) for f in transfer['files']]))
 
 except Exception as inst:
   print(type(inst))
